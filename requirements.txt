@@ -3,3 +3,9 @@ pandas
 openpyxl
 euriai
 langchain
+streamlit
+pandas
+openpyxl
+euriai
+beautifulsoup4
+requests
