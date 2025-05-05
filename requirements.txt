@@ -9,3 +9,4 @@ openpyxl
 euriai
 beautifulsoup4
 requests
+logging
