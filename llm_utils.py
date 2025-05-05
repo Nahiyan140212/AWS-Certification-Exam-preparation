@@ -1,6 +1,6 @@
 import json
-import logging
 import streamlit as st
+import logging
 from euriai import EuriaiClient
 
 # Configure logging
@@ -9,27 +9,21 @@ logger = logging.getLogger(__name__)
 
 def generate_llm_questions():
     """
-    Generate 15–20 quiz questions using the EuriaiClient SDK with the Gemini model.
+    Generate 15–20 quiz questions using the EuriaiClient SDK with gpt-4.1-nano.
     Returns a list of question dictionaries with question, options, answer, and explanation.
     """
     # Load API key from Streamlit secrets
     try:
-        # Make sure you're accessing the key using the correct path in the secrets structure
-        api_key = st.secrets["api_keys"]["EURIAI_API_KEY"]
-        logger.info("Successfully loaded API key from secrets")
-    except KeyError as e:
-        logger.error(f"API key not found in Streamlit secrets: {str(e)}")
-        st.error("API key not found in Streamlit secrets. Please check your secrets.toml file.")
+        api_key = st.secrets["EURIAI_API_KEY"]
+    except KeyError:
+        logger.error("EURIAI_API_KEY not found in Streamlit secrets.")
         return []
 
     # Initialize EuriaiClient
     try:
-        logger.info("Initializing EuriaiClient...")
-        client = EuriaiClient(api_key=api_key, model="gemini-2.5-pro-exp-03-25")
-        logger.info("EuriaiClient initialized successfully")
+        client = EuriaiClient(api_key=api_key, model="gpt-4.1-nano")
     except Exception as e:
         logger.error(f"Failed to initialize EuriaiClient: {str(e)}")
-        st.error(f"Failed to initialize EuriaiClient: {str(e)}")
         return []
 
     # LLM Prompt
@@ -38,7 +32,7 @@ def generate_llm_questions():
 
     **AWS CAF**:
     - Metaphor: City planning for cloud adoption.
-    - Six perspectives: Business (Mayor's office, CEO/CFO, strategy, innovation), People (HR, training, cloud fluency), Governance (city council, risk/cost management), Platform (engineering, cloud-native, CI/CD), Security (police, IAM, threat detection), Operations (maintenance, observability, incident management).
+    - Six perspectives: Business (Mayor’s office, CEO/CFO, strategy, innovation), People (HR, training, cloud fluency), Governance (city council, risk/cost management), Platform (engineering, cloud-native, CI/CD), Security (police, IAM, threat detection), Operations (maintenance, observability, incident management).
     - Four phases: Envision (set goals), Align (plan readiness), Launch (pilot projects), Scale (full migration).
     - Case study: ShopEasy (retailer migrates e-commerce to AWS, uses Redshift for analytics, Cost Explorer for budgeting, IAM for security).
 
@@ -60,13 +54,13 @@ def generate_llm_questions():
             "question": "What is the purpose of the CAF Business Perspective?",
             "options": ["Train employees", "Align cloud with business goals", "Protect data", "Build infrastructure"],
             "answer": "Align cloud with business goals",
-            "explanation": "The Business Perspective, like the mayor's office, ensures cloud adoption drives business outcomes like revenue growth."
+            "explanation": "The Business Perspective, like the mayor’s office, ensures cloud adoption drives business outcomes like revenue growth."
         },
         {
             "question": "A gaming company migrates to AWS. Which WAF pillar ensures low-latency gameplay?",
             "options": ["Security", "Reliability", "Performance Efficiency", "Cost Optimization"],
             "answer": "Performance Efficiency",
-            "explanation": "Performance Efficiency, like a house's plumbing, optimizes resources for speed, using services like CloudFront."
+            "explanation": "Performance Efficiency, like a house’s plumbing, optimizes resources for speed, using services like CloudFront."
         }
     ]
 
@@ -74,51 +68,52 @@ def generate_llm_questions():
     """
 
     try:
-        logger.info("Sending request to EuriaiClient API...")
         response = client.generate_completion(
             prompt=prompt,
             temperature=0.7,
             max_tokens=4000
         )
-        logger.info("Received response from EuriaiClient API")
-        
-        # Check if response is a string containing JSON
-        if isinstance(response, str):
-            try:
-                questions = json.loads(response)
-                logger.info(f"Successfully parsed JSON response with {len(questions)} questions")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse LLM response as JSON: {str(e)}")
-                st.error("Failed to parse response as JSON. The API may have returned an invalid format.")
+        # Log response for debugging
+        logger.info(f"Raw LLM response type: {type(response)}, content: {response}")
+
+        # Handle dictionary response
+        if isinstance(response, dict):
+            # Try common field names for the response text
+            possible_fields = ["text", "content", "response", "completion"]
+            response_text = None
+            for field in possible_fields:
+                if field in response:
+                    response_text = response[field]
+                    break
+            if response_text is None:
+                logger.error(f"Could not find a valid text field in response: {response.keys()}")
                 return []
-        elif isinstance(response, dict) and 'text' in response:
-            # Some APIs return a dict with 'text' key
-            try:
-                questions = json.loads(response['text'])
-                logger.info(f"Successfully parsed JSON from response['text'] with {len(questions)} questions")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse response['text'] as JSON: {str(e)}")
-                st.error("Failed to parse response as JSON. The API may have returned an invalid format.")
+            if not isinstance(response_text, str):
+                logger.error(f"Response text is not a string: {type(response_text)}")
                 return []
+        elif isinstance(response, str):
+            response_text = response
         else:
             logger.error(f"Unexpected response format: {type(response)}")
-            st.error(f"Unexpected response format: {type(response)}")
             return []
-        
-        # Validate questions
-        valid_questions = [
-            q for q in questions
-            if isinstance(q, dict) and
-            all(key in q for key in ["question", "options", "answer", "explanation"]) and
-            isinstance(q["options"], list) and len(q["options"]) == 4 and
-            q["answer"] in q["options"]
-        ]
-        
-        if len(valid_questions) < 15:
-            logger.warning(f"LLM returned only {len(valid_questions)} valid questions. Expected 15–20.")
-        
-        return valid_questions[:20]  # Cap at 20
+
+        # Parse JSON from response_text
+        try:
+            questions = json.loads(response_text)
+            # Validate questions
+            valid_questions = [
+                q for q in questions
+                if isinstance(q, dict) and
+                all(key in q for key in ["question", "options", "answer", "explanation"]) and
+                isinstance(q["options"], list) and len(q["options"]) == 4 and
+                q["answer"] in q["options"]
+            ]
+            if len(valid_questions) < 15:
+                logger.warning(f"LLM returned only {len(valid_questions)} valid questions. Expected 15–20.")
+            return valid_questions[:20]  # Cap at 20
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse LLM response as JSON: {response_text}")
+            return []
     except Exception as e:
         logger.error(f"EuriaiClient request failed: {str(e)}")
-        st.error(f"API request failed: {str(e)}")
         return []
